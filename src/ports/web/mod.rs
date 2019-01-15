@@ -60,7 +60,7 @@ where
     info!("Calculating the average rating of all entries...");
     calculate_all_ratings(&*pool.get().unwrap()).unwrap();
     info!("done.");
-    rocket::custom(cfg).manage(pool).mount("/", api::routes())
+    rocket::ignite().manage(pool).mount("/", api::routes())
 }
 
 pub fn run(db_url: &str, port: u16, enable_cors: bool) {
