@@ -1,7 +1,20 @@
 use super::{super::guards::Bearer, *};
-use rocket::http::RawStr;
-use rocket::http::Status;
-use rocket::request::{FromQuery, Query};
+use geocoding::Opencage;
+use rocket::{
+    http::{RawStr, Status},
+    request::{FromQuery, Query},
+};
+use std::env;
+
+lazy_static! {
+    static ref OC_API_KEY: Option<String> = match env::var("OPENCAGE_API_KEY") {
+        Ok(key) => Some(key),
+        Err(_) => {
+            warn!("No OpenCage API key found");
+            None
+        }
+    };
+}
 
 #[post("/events", format = "application/json", data = "<e>")]
 pub fn post_event_with_token(
@@ -11,6 +24,34 @@ pub fn post_event_with_token(
 ) -> Result<String> {
     let mut e = e.into_inner();
     e.token = Some(token.0);
+    if let Some(key) = OC_API_KEY.clone() {
+        let oc = Opencage::new(key);
+        let x = e.clone();
+        let addr = format!(
+            "{},{},{},{}",
+            x.country.unwrap_or("".into()),
+            x.city.unwrap_or("".into()),
+            x.zip.unwrap_or("".into()),
+            x.street.unwrap_or("".into())
+        );
+        match oc.forward_full(&addr, &None) {
+            Ok(res) => {
+                if !res.results.is_empty() {
+                    let geometry = &res.results[0].geometry;
+                    let lat: Option<f64> = geometry.get("lat").cloned();
+                    let lng: Option<f64> = geometry.get("lng").cloned();
+                    if lat.is_some() && lng.is_some() {
+                        e.lat = lat;
+                        e.lng = lng;
+                    }
+                }
+            }
+            Err(err) => {
+                warn!("Could not receive geo information: {}", err);
+            }
+        }
+    }
+
     let id = usecases::create_new_event(&mut *db, e.clone())?;
     Ok(Json(id))
 }
