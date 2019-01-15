@@ -94,6 +94,7 @@ pub fn try_into_new_event<D: Db>(db: &mut D, e: NewEvent) -> Result<Event> {
         token,
         ..
     } = e;
+    println!("check org");
     let org = if let Some(ref token) = token {
         let org = db.get_org_by_api_token(token).map_err(|e| match e {
             RepoError::NotFound => Error::Parameter(ParameterError::Unauthorized),
@@ -109,7 +110,9 @@ pub fn try_into_new_event<D: Db>(db: &mut D, e: NewEvent) -> Result<Event> {
         .map(|t| t.replace("#", ""))
         .collect();
     tags.dedup();
+    println!("owned tags");
     let owned_tags = db.get_all_tags_owned_by_orgs()?;
+    println!("check owned tags");
     for t in &tags {
         if owned_tags.iter().any(|id| id == t) {
             match org {
@@ -124,6 +127,8 @@ pub fn try_into_new_event<D: Db>(db: &mut D, e: NewEvent) -> Result<Event> {
             }
         }
     }
+    println!("address");
+    //TODO: use address.is_empty() 
     let address = if street.is_some() || zip.is_some() || city.is_some() || country.is_some() {
         Some(Address {
             street,
@@ -135,6 +140,8 @@ pub fn try_into_new_event<D: Db>(db: &mut D, e: NewEvent) -> Result<Event> {
         None
     };
 
+    println!("location");
+    //TODO: use location.is_empty() 
     let location = if lat.is_some() || lng.is_some() || address.is_some() {
         Some(Location {
             lat: lat.unwrap_or(0.0),
@@ -144,28 +151,30 @@ pub fn try_into_new_event<D: Db>(db: &mut D, e: NewEvent) -> Result<Event> {
     } else {
         None
     };
+    println!("contact");
+    //TODO: use contact.is_empty() 
     let contact = if email.is_some() || telephone.is_some() {
         Some(Contact { email, telephone })
     } else {
         None
     };
     let id = Uuid::new_v4().to_simple_ref().to_string();
+    println!("homepage");
     let homepage = e
         .homepage
         .filter(|h| !h.is_empty())
         .map(|ref url| parse_url_param(url))
         .transpose()?;
 
+    println!("created_by");
     let created_by = if let Some(ref email) = created_by {
         let username = create_user_from_email(db, email)?;
         Some(username)
     } else {
-        // NOTE: At the moment we require an email address:
-        return Err(ParameterError::CreatorEmail.into());
-        // But in the future we might allow anonymous creators:
-        // None
+        None
     };
 
+    println!("registration");
     let registration = match registration {
         Some(r) => {
             if r.is_empty() {
@@ -230,7 +239,11 @@ pub fn try_into_new_event<D: Db>(db: &mut D, e: NewEvent) -> Result<Event> {
 pub fn create_new_event<D: Db>(db: &mut D, e: NewEvent) -> Result<String> {
     let new_event = try_into_new_event(db, e)?;
     let new_id = new_event.id.clone();
-
+    if new_event.created_by.is_none() {
+        // NOTE: At the moment we require an email address,
+        // but in the future we might allow anonymous creators
+        return Err(ParameterError::CreatorEmail.into());
+    }
     debug!("Creating new event: {:?}", new_event);
     db.create_event(new_event)?;
     Ok(new_id)
